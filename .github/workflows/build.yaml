@@ -54,22 +54,26 @@ jobs:
       - name: 'Auth to Registry'
         run: |
           chainctl auth configure-docker
+          chainctl auth status
   
-      # - name: Cosign Verify 
-      #   id: cosign-verify
-      #   continue-on-error: false
-      #   run: |
-      #     # Images will be signed by either the CATALOG_SYNCER or APKO_BUILDER identity in your organization.
-      #     # To find these values for your organization, you can view the "Assumed Identities" page in your organization settings.
-      #     CATALOG_SYNCER="4cf15780a13a9b6576d8b357e6524554c8c12a18/c03040118377d88c"
-      #     APKO_BUILDER="4cf15780a13a9b6576d8b357e6524554c8c12a18/ca93125e202f81f8"
-      #     cosign verify \
-      #       --certificate-oidc-issuer=https://issuer.enforce.dev \
-      #       --certificate-identity-regexp="https://issuer.enforce.dev/(${CATALOG_SYNCER}|${APKO_BUILDER})" \
-      #     $NEW_IMAGE | jq
-          
-      #     echo "OLD_IMAGE=$OLD_IMAGE" >> $GITHUB_ENV
-      #     echo "NEW_IMAGE=$NEW_IMAGE" >> $GITHUB_ENV       
+      - name: Verify signature && pull existing image
+        id: cosign-verify
+        continue-on-error: false
+        run: |
+          # Images will be signed by either the CATALOG_SYNCER or APKO_BUILDER identity in your organization.
+          # To find these values for your organization, you can view the "Assumed Identities" page in your organization settings.
+          CATALOG_SYNCER="4cf15780a13a9b6576d8b357e6524554c8c12a18/c03040118377d88c"
+          APKO_BUILDER="4cf15780a13a9b6576d8b357e6524554c8c12a18/ca93125e202f81f8"
+          cosign verify \
+            --certificate-oidc-issuer=https://issuer.enforce.dev \
+            --certificate-identity-regexp="https://issuer.enforce.dev/(${CATALOG_SYNCER}|${APKO_BUILDER})" \
+          $CUSTOM_IMAGE:openjdk-21 | jq
+
+      - name: Check created time
+        id: crane-config
+        continue-on-error: false
+        run: |
+          echo "Created time: $(crane config $CUSTOM_IMAGE:openjdk-21 | jq -r .created)"
         
       # - name: Run chainctl images diff
       #   id: diff_vulnerabilities
