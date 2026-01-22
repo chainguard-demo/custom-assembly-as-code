@@ -74,6 +74,12 @@ jobs:
         continue-on-error: false
         run: |
           echo "Created time: $(crane config $CUSTOM_IMAGE:openjdk-21 | jq -r .created)"
+
+      - name: Trigger custom build
+        id: start-custom-build
+        continue-on-error: false
+        run: |
+          chainctl image repo build apply -f ca-images-iac/custom-jre.yaml --parent cgr-demo.com --repo custom-jre --yes
         
       # - name: Run chainctl images diff
       #   id: diff_vulnerabilities
