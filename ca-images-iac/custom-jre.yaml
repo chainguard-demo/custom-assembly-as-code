@@ -1,0 +1,8 @@
+contents:
+  packages:
+    - maven-3.9
+
+annotations:
+  "dev.chainguard.team": "se"
+  "dev.chainguard.image-type": "custom"
+  "dev.chainguard.ci": "custom-assembly-as-code"
