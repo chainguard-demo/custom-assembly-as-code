@@ -1,0 +1,11 @@
+# Copyright 2024 Chainguard, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+issuer: https://token.actions.githubusercontent.com
+subject_pattern: repo:chainguard-demo/custom-assembly-as-code:.*
+claim_pattern:
+  job_workflow_ref: chainguard-demo/custom-assembly-as-code/.github/workflows/build.yaml@.*
+
+permissions:
+  contents: write
+  workflows: write
