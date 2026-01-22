@@ -3,6 +3,5 @@ contents:
     - maven-3.9
 
 annotations:
-  "dev.chainguard-demo.team": "se"
-  "dev.chainguard-demo.image-type": "custom"
-  "dev.chainguard-demo.ci": "custom-assembly-as-code"
+  "com.cgr-demo.image-type": "custom"
+  "com.cgr-demo.ci": "custom-assembly-as-code"
