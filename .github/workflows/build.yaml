@@ -55,191 +55,33 @@ jobs:
         run: |
           chainctl auth configure-docker
   
-      - name: Extract unique image.tag value
-        id: extract_unique_tag
-        run: |
-          CURRENT_UNIQUE_IMAGE=$(yq '.image.tag' helm/redis/values.yaml)
-          echo "Extracted Unique Tags: $CURRENT_UNIQUE_IMAGE"
-          echo "CURRENT_UNIQUE_TAG=$CURRENT_UNIQUE_IMAGE" >> $GITHUB_ENV
-
-      - name: Get latest unique tag
-        id: get_current_unique_tag
-        run: |
-          LATEST_UNIQUE_TAG=$(crane ls ${{ env.REDIS_IMAGE }} | grep -E '^[^ ]+-[0-9]{12}$' | grep -v '^latest' | grep -v '\-dev' | sort -Vr | head -n 1)
-          echo "LATEST_UNIQUE_TAG=${LATEST_UNIQUE_TAG}" >> $GITHUB_ENV
-
-      - name: Compare unique tags
-        id: compare_unique_tags
-        run: |
-          echo "CURRENT_UNIQUE_TAG=${{ env.CURRENT_UNIQUE_TAG }}"
-          echo "LATEST_UNIQUE_TAG=${{ env.LATEST_UNIQUE_TAG }}"
-          if [ "${{ env.CURRENT_UNIQUE_TAG }}" != "${{ env.LATEST_UNIQUE_TAG }}" ]; then
-            echo "UNIQUE_TAGS_CHANGED=true" >> $GITHUB_ENV
-          else
-            echo "UNIQUE_TAGS_CHANGED=false" >> $GITHUB_ENV
-          fi
-
-      - name: Cosign Verify 
-        if: env.UNIQUE_TAGS_CHANGED == 'true'
-        id: cosign-verify
-        continue-on-error: false
-        run: |
-          OLD_IMAGE="${{ env.REDIS_IMAGE }}:${{ env.CURRENT_UNIQUE_TAG }}"
-          NEW_IMAGE="${{ env.REDIS_IMAGE }}:${{ env.LATEST_UNIQUE_TAG }}"
+      # - name: Cosign Verify 
+      #   id: cosign-verify
+      #   continue-on-error: false
+      #   run: |
+      #     # Images will be signed by either the CATALOG_SYNCER or APKO_BUILDER identity in your organization.
+      #     # To find these values for your organization, you can view the "Assumed Identities" page in your organization settings.
+      #     CATALOG_SYNCER="4cf15780a13a9b6576d8b357e6524554c8c12a18/c03040118377d88c"
+      #     APKO_BUILDER="4cf15780a13a9b6576d8b357e6524554c8c12a18/ca93125e202f81f8"
+      #     cosign verify \
+      #       --certificate-oidc-issuer=https://issuer.enforce.dev \
+      #       --certificate-identity-regexp="https://issuer.enforce.dev/(${CATALOG_SYNCER}|${APKO_BUILDER})" \
+      #     $NEW_IMAGE | jq
           
-          # Images will be signed by either the CATALOG_SYNCER or APKO_BUILDER identity in your organization.
-          # To find these values for your organization, you can view the "Assumed Identities" page in your organization settings.
-          CATALOG_SYNCER="4cf15780a13a9b6576d8b357e6524554c8c12a18/c03040118377d88c"
-          APKO_BUILDER="4cf15780a13a9b6576d8b357e6524554c8c12a18/ca93125e202f81f8"
-          cosign verify \
-            --certificate-oidc-issuer=https://issuer.enforce.dev \
-            --certificate-identity-regexp="https://issuer.enforce.dev/(${CATALOG_SYNCER}|${APKO_BUILDER})" \
-          $NEW_IMAGE | jq
-          
-          echo "OLD_IMAGE=$OLD_IMAGE" >> $GITHUB_ENV
-          echo "NEW_IMAGE=$NEW_IMAGE" >> $GITHUB_ENV       
+      #     echo "OLD_IMAGE=$OLD_IMAGE" >> $GITHUB_ENV
+      #     echo "NEW_IMAGE=$NEW_IMAGE" >> $GITHUB_ENV       
         
-      - name: Run chainctl images diff
-        if: env.UNIQUE_TAGS_CHANGED == 'true'
-        id: diff_vulnerabilities
-        run: |
+      # - name: Run chainctl images diff
+      #   id: diff_vulnerabilities
+      #   run: |
 
-          CVE_LIST_JSON=$(chainctl images diff "${{ env.OLD_IMAGE }}" "${{ env.NEW_IMAGE }}" 2>/dev/null | jq -c 'select(.vulnerabilities.removed != null) | [.vulnerabilities.removed[] | select(.severity == "Critical" or .severity == "High") | .id]')
-          echo "CVE_LIST=$CVE_LIST_JSON" >> $GITHUB_ENV
+      #     CVE_LIST_JSON=$(chainctl images diff "${{ env.OLD_IMAGE }}" "${{ env.NEW_IMAGE }}" 2>/dev/null | jq -c 'select(.vulnerabilities.removed != null) | [.vulnerabilities.removed[] | select(.severity == "Critical" or .severity == "High") | .id]')
+      #     echo "CVE_LIST=$CVE_LIST_JSON" >> $GITHUB_ENV
 
-          if [ -n "$CVE_LIST_JSON" ]; then
-            echo "Found CVE fixes for the following CVES: $CVE_LIST_JSON"
-            echo "FIX_CVE=true" >> $GITHUB_ENV
-          else
-            echo "No CVE fixes available"
-            echo "FIX_CVE=false" >> $GITHUB_ENV
-          fi
-    
-      - name: Scan New Image with Grype
-        if: env.FIX_CVE == 'true' && env.SCAN_WITH_GRYPE == 'true'
-        run: |
-          grype $NEW_IMAGE -o sarif > grype-results.sarif
-          SARIF_SUMMARY=$(grype $NEW_IMAGE 2>&1 | tee)
-          echo "SARIF_SUMMARY=${SARIF_SUMMARY}" >> $GITHUB_ENV
-
-      - name: Clear outdated SARIF
-        if: env.FIX_CVE == 'true'
-        env:
-          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
-        run: |
-          ORGANIZATION="chainguard-dev"
-          REPOSITORY="auto-deploy-demo"
-          
-          echo "Retrieving all analysis results in $ORGANIZATION/$REPOSITORY"
-          ANALYSIS_IDS=$(gh api -X GET "repos/$ORGANIZATION/$REPOSITORY/code-scanning/analyses?per_page=100&direction=asc" --paginate --jq='.[] | select(.deletable==true) | .id')
-          
-          for analysis_id in ${ANALYSIS_IDS}
-          do
-            echo "Deleting analysis result $analysis_id"
-            gh api -X DELETE "repos/$ORGANIZATION/$REPOSITORY/code-scanning/analyses/$analysis_id?confirm_delete=true" --silent
-          done
-      
-      - name: Upload new Grype SARIF results
-        if: env.FIX_CVE == 'true' && env.SCAN_WITH_GRYPE == 'true'
-        uses: github/codeql-action/upload-sarif@6bb031afdd8eb862ea3fc1848194185e076637e5 # v3.28.11
-        with:
-          sarif_file: grype-results.sarif
-
-      - name: Pre-pull docker image for Prisma Cloud scan
-        if: env.FIX_CVE == 'true' && env.SCAN_WITH_PRISMA_CLOUD == 'true'
-        run: |
-          # Prisma Cloud can only see the image if it's pre-pulled locally
-            docker pull $NEW_IMAGE
-      
-      - name: Prisma Cloud image scan
-        if: env.FIX_CVE == 'true' && env.SCAN_WITH_PRISMA_CLOUD == 'true'
-        id: prismascan
-        uses: PaloAltoNetworks/prisma-cloud-scan@124b48d8325c23f58a35da0f1b4d9a6b54301d05 # v1.6.7
-        with:
-          pcc_console_url: ${{ secrets.PCC_CONSOLE_URL }}
-          pcc_user: ${{ secrets.PCC_USER }}
-          pcc_pass: ${{ secrets.PCC_PASS }}
-          image_name: "${{ env.NEW_IMAGE }}"
-      
-      - name: Upload new Prisma Cloud SARIF file
-        if: env.FIX_CVE == 'true' && env.SCAN_WITH_PRISMA_CLOUD == 'true'
-        uses: github/codeql-action/upload-sarif@6bb031afdd8eb862ea3fc1848194185e076637e5 # v3.28.11
-        with:
-          sarif_file: ${{ steps.prismascan.outputs.sarif_file }}
-
-      - name: Extract Prisma Cloud Console Link
-        if: env.FIX_CVE == 'true' && env.SCAN_WITH_PRISMA_CLOUD == 'true'
-        id: extract_prisma_link
-        run: |
-          results_file=${{ steps.prismascan.outputs.results_file }}
-          PRISMA_CLOUD_URL=$(cat "$results_file" | jq -r '.consoleURL')
-          echo "PRISMA_CLOUD_URL=$PRISMA_CLOUD_URL"
-          echo "PRISMA_CLOUD_URL=$PRISMA_CLOUD_URL" >> $GITHUB_ENV
-          
-      - name: Update Helm Values
-        if: env.FIX_CVE == 'true'
-        shell: bash
-        run: yq -i ".image.tag = \"${{ env.LATEST_UNIQUE_TAG }}\"" helm/redis/values.yaml
-      
-      - name: Run git diff
-        if: env.FIX_CVE == 'true'
-        id: create_pr_update
-        shell: bash
-        run: |
-          git diff --stat
-          echo "create_pr_update=false" >> $GITHUB_OUTPUT
-          if [[ $(git diff --stat) != '' ]]; then
-            echo "create_pr_update=true" >> $GITHUB_OUTPUT
-            echo "diff<<EOF" >> "${GITHUB_OUTPUT}"
-            git diff >> "${GITHUB_OUTPUT}"
-            echo "EOF" >> "${GITHUB_OUTPUT}"
-          fi
-      
-      - uses: chainguard-dev/actions/setup-gitsign@57cb0b7560d9b9b081c15ac5ef689f73f4dda03e # main branch as of 2024-08-02
-      
-      - name: Delete existing branch and PR
-        if: env.FIX_CVE == 'true'
-        env:
-          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
-        run: |          
-          PR_NUMBER=$(gh pr list --head "apply-cve-fix" --json number --jq '.[0].number')
-          if [ -n "$PR_NUMBER" ]; then
-            echo "Closing PR #$PR_NUMBER"
-            gh pr close "$PR_NUMBER" --delete-branch
-          else
-            echo "No PR found for branch 'apply-cve-fix'"
-          fi
-    
-      - name: Create Pull Request
-        if: env.FIX_CVE == 'true'
-        uses: peter-evans/create-pull-request@5e914681df9dc83aa4e4905692ca88beb2f9e91f # v7.0.5
-        id: pull_request
-        with:
-          token: ${{ steps.octo-sts.outputs.token }}
-          commit-message: 'Update images digests'
-          title: 'Apply CVE Fix'
-          body: |
-            <details>
-            <summary>Grype Scan Summary after updating to ${{ env.LATEST_UNIQUE_TAG }}</summary>
-
-            ```json
-            ${{ env.SARIF_SUMMARY }}
-            ```
-            </details>
-
-            ## Prisma Cloud Console Link
-            [View detailed scan results in Prisma Cloud Console](${{ env.PRISMA_CLOUD_URL }})
-
-            ## Changes
-            <details>
-            <summary>File Changes</summary>
-
-            ```diff
-            ${{ steps.create_pr_update.outputs.diff }}
-            ```
-            </details>
-          labels: automated pr, cve, patch
-          branch: 'apply-cve-fix'
-          committer: 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>'
-          author: '${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>'
-          delete-branch: true
+      #     if [ -n "$CVE_LIST_JSON" ]; then
+      #       echo "Found CVE fixes for the following CVES: $CVE_LIST_JSON"
+      #       echo "FIX_CVE=true" >> $GITHUB_ENV
+      #     else
+      #       echo "No CVE fixes available"
+      #       echo "FIX_CVE=false" >> $GITHUB_ENV
+      #     fi
