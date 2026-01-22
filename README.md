@@ -13,3 +13,5 @@ Declarative trigger custom image builds using IaC:
 * Commit to the main branch
 * Merge
 * Profit 
+
+<img width="948" height="642" alt="image" src="https://github.com/user-attachments/assets/7b40b59c-2294-4477-9cf0-f8048fae09f4" />
