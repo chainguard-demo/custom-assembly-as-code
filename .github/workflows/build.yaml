@@ -1,7 +1,11 @@
 name: build
 
 on:
-  workflow_dispatch: # Allows manual triggering 
+  push:
+    branches: [main]
+    paths:
+      - 'ca-images-iac/custom-jre.yaml'
+  workflow_dispatch:
 
 env:
   CUSTOM_IMAGE: "cgr.dev/cgr-demo.com/custom-jre"
