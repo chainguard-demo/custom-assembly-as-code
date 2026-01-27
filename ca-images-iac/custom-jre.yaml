@@ -1,6 +1,7 @@
 contents:
   packages:
     - maven-3.9
+    - cosign
 
 annotations:
   "com.cgr-demo.image-type": "custom"
